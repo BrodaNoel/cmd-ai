@@ -1,6 +1,6 @@
 {
   "name": "cmd-ai",
-  "version": "1.3.0",
+  "version": "1.5.0",
   "description": "Natural language shell command generator and executor powered by AI",
   "bin": {
     "ai": "bin/ai.js"
@@ -12,7 +12,8 @@
     "dev:link": "npm link",
     "dev:unlink": "npm unlink -g cmd-ai",
     "dev:pack": "npm pack --dry-run",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "release": "node scripts/release.mjs"
   },
   "keywords": [
     "cli",

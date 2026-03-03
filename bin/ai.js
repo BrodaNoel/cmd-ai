@@ -446,6 +446,7 @@ Output only the explanation and command, or just the command.
 }
 
 function stripAnsi(text) {
+  // eslint-disable-next-line no-control-regex
   return text.replace(/\u001b\[[0-9;]*m/g, '');
 }
 

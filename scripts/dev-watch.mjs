@@ -22,7 +22,7 @@ function runChecks(reason) {
       stdio: 'inherit',
     });
     console.log('[dev:watch] Checks passed.');
-  } catch (error) {
+  } catch {
     console.error('[dev:watch] Checks failed.');
   }
 }
@@ -83,4 +83,3 @@ process.on('SIGINT', () => {
   console.log('\n[dev:watch] Stopped.');
   process.exit(0);
 });
-

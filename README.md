@@ -14,7 +14,7 @@ To install `cmd-ai`, use the following command:
 npm install -g cmd-ai
 ```
 
-Ensure you have Node.js installed (version 18 or higher recommended) on your system before proceeding with the installation.
+Ensure you have Node.js installed (v24 via `.nvmrc` is recommended) on your system before proceeding with the installation.
 
 ## Configuration
 
@@ -155,6 +155,20 @@ git pull origin main
 npm install
 npm run dev:check
 npm run dev:pack
+```
+
+You can run the full flow with the release helper:
+
+```bash
+npm run release
+```
+
+Use one of:
+
+```bash
+npm run release -- fix
+npm run release -- feature
+npm run release -- breaking
 ```
 
 3. Bump version and create git tag (choose one).

@@ -122,8 +122,50 @@ Generated provider output is parsed by:
 - shell completion script: `cmd-ai-completion.sh`
 - package metadata + bin mapping: `package.json`
 - docs: `README.md`
+- release helper: `scripts/release.mjs`
+
+## Release flow
+
+Use this for future releases:
+
+1. Decide release kind:
+   - `fix` (patch)
+   - `feature` (minor)
+   - `breaking` (major)
+2. Run:
+
+```bash
+npm run release
+```
+
+`npm run release` does all of the following:
+- verifies required scripts exist in `package.json` (`dev:check`, `lint`, `dev:pack` when available)
+- runs `npm run dev:check`
+- runs optional `npm run lint` and `npm run dev:pack` checks if present
+- ensures the git working tree is clean
+- prompts for release kind if not passed as an argument (or accepts:
+  - `npm run release -- fix`
+  - `npm run release -- feature`
+  - `npm run release -- breaking`
+  )
+- runs `npm version` with a chore release commit
+- creates an annotated version tag (default `npm version` format)
+- pushes commit and tags
+- runs `npm publish`
+- prints the published package version
+
+If you prefer manual steps, run these in order:
+
+```bash
+npm run dev:check
+npm run lint
+npm run dev:pack
+npm version patch # or minor/major
+git push --follow-tags
+npm publish
+```
 
 ## Known Limitations
 - model lists are intentionally hardcoded; updating requires code changes in `bin/ai.js`
-- `install-autocomplete` expects `cmd-ai-completion.sh` in current working directory
+- `install-autocomplete` copies the bundled `cmd-ai-completion.sh` from the installed package path and sources it from `~/.cmd-ai-completion.sh`
 - safety filter is pattern-based, not a full shell parser/sandbox
