@@ -191,6 +191,13 @@ git push origin main --follow-tags
 
 ```bash
 npm publish
+npm publish --otp=<code> # when your npm account/org requires 2FA
+```
+
+When using `npm run release`, provide OTP interactively when prompted, or set `NPM_OTP`:
+
+```bash
+NPM_OTP=<code> npm run release -- feature
 ```
 
 If npm 2FA is enabled for publish, run:

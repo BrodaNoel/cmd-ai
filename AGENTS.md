@@ -139,19 +139,18 @@ npm run release
 ```
 
 `npm run release` does all of the following:
-- verifies required scripts exist in `package.json` (`dev:check`, `lint`, `dev:pack` when available)
+- verifies required scripts exist in `package.json` (`dev:check`, `lint`)
 - runs `npm run dev:check`
-- runs optional `npm run lint` and `npm run dev:pack` checks if present
-- ensures the git working tree is clean
+- runs `npm run lint` (required) and `npm run dev:pack` (optional) checks if present
 - prompts for release kind if not passed as an argument (or accepts:
   - `npm run release -- fix`
   - `npm run release -- feature`
   - `npm run release -- breaking`
   )
-- runs `npm version` with a chore release commit
+- runs `npm version` without creating a git tag directly, then creates an annotated release commit and tag
 - creates an annotated version tag (default `npm version` format)
 - pushes commit and tags
-- runs `npm publish`
+- runs `npm publish` (supports interactive OTP prompt or `NPM_OTP` env var when 2FA is required)
 - prints the published package version
 
 If you prefer manual steps, run these in order:

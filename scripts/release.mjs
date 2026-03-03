@@ -68,6 +68,81 @@ function runCommand(label, command, args = [], options = {}) {
   return result;
 }
 
+async function runPublishCommand() {
+  const otp = process.env.NPM_OTP;
+
+  if (otp) {
+    runCommand(`npm publish --otp`, 'npm', ['publish', '--otp', otp]);
+    return;
+  }
+
+  const publishWithOptions = args => {
+    const result = spawnSync('npm', ['publish', ...args], {
+      cwd: projectRoot,
+      shell: process.platform === 'win32',
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        NPM_CONFIG_CACHE: releaseCacheDir,
+      },
+      stdio: ['inherit', 'pipe', 'pipe'],
+    });
+
+    if (result.error) {
+      throw new Error(`npm publish failed to start: ${result.error.message}`);
+    }
+
+    if (result.stdout) {
+      process.stdout.write(result.stdout);
+    }
+    if (result.stderr) {
+      process.stderr.write(result.stderr);
+    }
+
+    if (result.status === 0) {
+      return;
+    }
+
+    const output = `${result.stdout || ''}${result.stderr || ''}`.toLowerCase();
+    if (output.includes('two-factor authentication')) {
+      const error = new Error('Two-factor authentication');
+      error.code = 'TWO_FACTOR';
+      error.message = output.trim();
+      throw error;
+    }
+
+    throw new Error('npm publish failed with exit code ' + result.status);
+  };
+
+  try {
+    publishWithOptions([]);
+  } catch (error) {
+    if (error.code === 'TWO_FACTOR' || /two-factor authentication/i.test(error.message)) {
+      const rl = readline.createInterface({
+        input: process.stdin,
+        output: process.stdout,
+      });
+      const otpInput = (await rl.question(
+        'NPM requires an OTP to publish. Enter your one-time passcode: '
+      )).trim();
+      rl.close();
+
+      if (!otpInput) {
+        throw new Error('Publish aborted. OTP is required for this account.');
+      }
+
+      runCommand(
+        `npm publish --otp`,
+        'npm',
+        ['publish', '--otp', otpInput]
+      );
+      return;
+    }
+
+    throw error;
+  }
+}
+
 function checkScriptsExist() {
   for (const script of requiredCheckScripts) {
     if (!packageScripts[script]) {
@@ -173,7 +248,7 @@ async function main() {
     'git',
     ['push', '--follow-tags']
   );
-  runCommand(`npm publish`, 'npm', ['publish']);
+  await runPublishCommand();
   runCommand(`npm view cmd-ai version`, 'npm', ['view', 'cmd-ai', 'version']);
 
   console.log('✔ Release complete.');
