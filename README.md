@@ -2,7 +2,7 @@
 
 **cmd-ai** is a natural language shell assistant powered by AI. It turns plain English (or any prompt) into real, executable shell commands — with safety, explanation, history, and autocompletion built-in.
 
-By default, it uses a small local AI model (Qwen3-0.6B) for speed and privacy, but you can configure it to use the OpenAI API.
+By default, it uses **Ollama** (local models on your machine), and you can also configure it to use **OpenAI**, **Google Gemini**, or **Anthropic Claude** APIs.
 
 ![Example Usage](example.png)
 
@@ -14,23 +14,24 @@ To install `cmd-ai`, use the following command:
 npm install -g cmd-ai
 ```
 
-Ensure you have Node.js installed (version 18 or higher recommended) on your system before proceeding with the installation. The first time you use the local model, it will automatically download the model files (approximately 300MB for the model and 2gb for the ONNX data), which may take some time.
+Ensure you have Node.js installed (version 18 or higher recommended) on your system before proceeding with the installation.
 
 ## Configuration
 
-Set your AI provider and potentially your OpenAI API key:
+Set your AI provider, model, reasoning effort, and API keys (where required):
 
 ```bash
 ai config
 ```
 
-This command will guide you through choosing between the local (default) and openai providers.
+This command will guide you through provider setup.
 
-- **local**: Uses the onnx-community/Qwen3-0.6B-ONNX model running directly on your machine. No external API key is required. When you select the local provider for the first time using ai config, the necessary model files (approximately 300MB for the model and 2GB for the ONNX data) will be automatically downloaded with a progress indicator. These files are cached locally for future use.
-- **gemini**: Uses the Google Gemini API (`gemini-1.5-flash-latest`). You will need to provide your Google AI Studio API key.
-- **openai**: Uses the OpenAI API. You will need to provide your OpenAI API key for this option.
+- **ollama** (default): Uses local models from your Ollama installation. `ai config` checks Ollama and lets you choose one of your installed models.
+- **openai**: Uses OpenAI Codex models (hardcoded list in code, including `gpt-5.3-codex` and `gpt-5.3-codex-spark`) and lets you choose reasoning effort.
+- **gemini**: Uses Google Gemini API models (hardcoded list in code) and lets you choose reasoning effort.
+- **claude**: Uses Anthropic Claude API models (hardcoded list in code). Reasoning effort is configurable for supported models (e.g. Opus/Sonnet).
 
-The default provider is **local**.
+The default provider is **ollama**.
 
 Your configuration is stored securely in:
 ```bash
@@ -53,7 +54,7 @@ Here some pre-defined commands:
 ai [your task here] [--flags]
 ai list all running Docker containers
 ai remove all .DS_Store files recursively
-ai config                         # Set your OpenAI API key
+ai config                         # Configure provider/model/API key/reasoning effort
 ai history                        # View past commands
 ai man                            # Show help
 ai install-autocomplete           # Automatically set up autocomplete
@@ -64,6 +65,7 @@ ai install-autocomplete           # Automatically set up autocomplete
 - `--explain` – Ask AI to explain the command before returning it.
 - `--dry` – Show the command but don’t execute it.
 - `--help` or `-h` – Show help screen.
+- `--version` – Show installed package version.
 
 ## Shell Autocompletion
 
@@ -77,6 +79,117 @@ This will:
 
 - Generate the autocomplete script at `~/.cmd-ai-completion.sh`
 - Add source `~/.cmd-ai-completion.sh` to your `.bashrc` or `.zshrc`
+
+## Developers
+
+### Local setup
+
+```bash
+npm install
+npm run dev:link
+```
+
+What this does:
+- Installs dependencies.
+- Links your local repo globally, so the `ai` command points to your working copy.
+
+### Fast local iteration
+
+Run automated checks on file changes while coding:
+
+```bash
+npm run dev:watch
+```
+
+This watches key files and reruns:
+- `npm run dev:check`
+
+`dev:check` performs:
+- syntax check (`node --check bin/ai.js`)
+- CLI smoke check (`node bin/ai.js --help`)
+
+Build note:
+- This project is plain Node.js ESM (no transpilation step), so `npm run dev:link` is enough to test changes immediately in your global `ai` command.
+
+### Manual testing during development
+
+In another terminal, run the linked CLI:
+
+```bash
+ai --help
+ai --version
+ai config
+ai list files --dry
+npm run dev:pack
+```
+
+Tip:
+- Use `--dry` while testing generation to avoid executing commands.
+- For safe config experiments, you can isolate config/history files:
+
+```bash
+HOME=/tmp ai config
+HOME=/tmp ai list files --dry
+```
+
+### Cleanup local global link
+
+```bash
+npm run dev:unlink
+```
+
+### Release and publish to npm
+
+Use this flow when shipping a new version:
+
+1. Start from an updated main branch.
+
+```bash
+git checkout main
+git pull origin main
+```
+
+2. Run local checks and packaging dry-run.
+
+```bash
+npm install
+npm run dev:check
+npm run dev:pack
+```
+
+3. Bump version and create git tag (choose one).
+
+```bash
+npm version patch
+# or: npm version minor
+# or: npm version major
+```
+
+This command updates `package.json`/`package-lock.json`, creates a release commit, and creates a git tag like `v1.2.1`.
+
+4. Push commit and tags.
+
+```bash
+git push origin main --follow-tags
+```
+
+5. Publish to npm.
+
+```bash
+npm publish
+```
+
+If npm 2FA is enabled for publish, run:
+
+```bash
+npm publish --otp=<code>
+```
+
+6. Verify published version.
+
+```bash
+npm view cmd-ai version
+```
 
 ## Safety
 

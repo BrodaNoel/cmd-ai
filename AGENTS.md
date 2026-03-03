@@ -1,120 +1,129 @@
 # cmd-ai Agent Notes
 
 ## What This Project Is
-`cmd-ai` is an npm package that installs a global `ai` terminal command.
+`cmd-ai` is an npm package that installs a global `ai` command for terminal use.
 
-The main use case is:
-- User types natural language, e.g. `ai list files`
-- Tool generates shell command(s) with AI
-- Tool shows the proposed command
-- User confirms
-- Tool executes the command (unless blocked, cancelled, or dry run)
+Primary flow:
+- user writes a natural-language task, e.g. `ai list files`
+- provider generates shell command(s)
+- CLI shows the proposed command
+- user confirms execution
+- command runs (or is skipped by `--dry`, cancellation, or safety block)
 
-Package metadata:
-- npm package: `cmd-ai`
-- binary entrypoint: `ai` -> `bin/ai.js`
-- current package version in repo: `1.2.0`
-- engines: Node `>=18.17.0` (`.nvmrc` currently points to `v24`)
-
-## Implemented CLI Features
-
-### 1) Natural-language command generation
-- `ai <prompt>`
-- Example: `ai list all running Docker containers`
-- Supports multi-command output (joins and executes whatever command text is extracted)
-
-### 2) AI providers
-Configured via `ai config`.
+## Current Providers
+Configured with `ai config`.
 
 Supported providers:
-- `local` (default): `onnx-community/Qwen3-0.6B-ONNX` through `@huggingface/transformers`
-- `openai`: OpenAI Chat Completions API (`gpt-3.5-turbo-0125`)
-- `gemini`: Google Gemini API (`gemini-2.0-flash-lite`)
+- `ollama` (default): uses local Ollama models selected from `ollama list`
+- `openai`: uses OpenAI Codex models through the Responses API
+- `gemini`: uses Google Gemini models through `generateContent`
+- `claude`: uses Anthropic Claude models through the Messages API
 
-Behavior:
-- Provider saved in `~/.ai-config.json`
-- Switching provider removes unrelated API keys from config
-- Selecting `local` in `ai config` triggers model download/setup
+### OpenAI (hardcoded model list)
+- `gpt-5.3-codex`
+- `gpt-5.3-codex-spark`
+- `gpt-5.2-codex`
+- `gpt-5.1-codex`
+- `gpt-5.1-codex-max`
 
-### 3) Flags
-- `--explain`: asks model to include a short explanation before command
-- `--dry`: does not execute command, but still goes through confirmation flow
-- `--help` / `-h` / `man`: help text
-- `--version`: prints `cmd-ai v<version>`
+Configurable in CLI:
+- API key
+- model
+- reasoning effort (`low`/`medium`/`high`, plus `xhigh` for `gpt-5.3-codex` and `gpt-5.2-codex`)
 
-### 4) Interactive execution confirmation
-- After generation, user is prompted:
-  - default mode: `Do you want to run the proposed command(s)? (Y/n):`
-  - dry mode: press Enter to simulate and skip execution
-- Empty input defaults to yes
+### Gemini (hardcoded model list)
+- `gemini-3.1-pro-preview`
+- `gemini-3-flash-preview`
+- `gemini-3.1-flash-lite-preview`
+- `gemini-2.5-pro`
+- `gemini-2.5-flash`
+- `gemini-2.5-flash-lite`
 
-### 5) Dangerous-command guard
-Before execution, commands are checked by a blacklist/pattern matcher.
+Configurable in CLI:
+- API key
+- model
+- reasoning effort (`low`/`medium`/`high`)
 
-Blocked examples include patterns like:
-- destructive deletes (`rm -rf /`, variants)
-- filesystem/boot-impacting commands (`mkfs`, `dd of=/dev/`, `shutdown`, `reboot`)
-- command piping into interpreters (`curl ... | sh`, `... | bash`, etc.)
-- other destructive patterns (`wipefs`, `shred`, risky `find / -delete`, etc.)
+Implementation detail:
+- Gemini 3.x models use `thinkingConfig.thinkingLevel`
+- Gemini 2.5 models use `thinkingConfig.thinkingBudget` mapped from effort
 
-If flagged as dangerous:
-- command is not executed
-- event is saved to history with note `Dangerous command detected`
+### Claude (hardcoded model list)
+- `claude-opus-4-6`
+- `claude-sonnet-4-6`
+- `claude-haiku-4-5`
 
-### 6) Command history
-Command sessions are stored at:
-- `~/.ai-command-history.json`
+Configurable in CLI:
+- API key
+- model
+- reasoning effort (`low`/`medium`/`high`; `max` also available for `claude-opus-4-6`)
 
-Stored fields include:
-- timestamp
-- prompt
-- command
-- executed true/false
-- provider
-- optional notes (dry run, cancelled, error details, dangerous detection, parse failure)
+Implementation detail:
+- reasoning effort is sent via `output_config.effort` for supported models (`opus` and `sonnet`)
+- `claude-haiku-4-5` is supported as a model choice, but effort control is not applied in this CLI path
 
-History behavior:
-- Keeps up to the last 1000 entries before appending new ones
-- `ai history` prints entries in a readable block format
+### Ollama behavior
+- checks that `ollama` command exists
+- fetches local models from `ollama list`
+- user picks one model in `ai config`
+- selected model is stored in config and used for prompt generation
 
-### 7) Autocomplete installer
-Command:
+## Commands and Flags
+Commands:
+- `ai <task>`
+- `ai config`
+- `ai history`
+- `ai man`
 - `ai install-autocomplete`
 
-Behavior:
-- Copies `cmd-ai-completion.sh` to `~/.cmd-ai-completion.sh`
-- Tries to auto-detect shell and append `source ~/.cmd-ai-completion.sh` to:
-  - `~/.zshrc`, `~/.bashrc`, or `~/.kshrc`
+Flags:
+- `--explain`
+- `--dry`
+- `--help` / `-h`
+- `--version`
 
-Autocomplete suggestions include:
-- commands: `config`, `history`, `man`, `install-autocomplete` (plus `autocomplete` token in the script)
-- flags: `--dry`, `--explain`, `--help`, `-h`
+## Config and History Files
+Config:
+- `~/.ai-config.json`
 
-### 8) Model output parsing
-The tool attempts to extract command text robustly by:
-- preferring fenced code blocks (```bash ... ```)
-- fallback line parsing for command-like lines
-- stripping common wrappers/prompts (quotes, backticks, `$`, `#`)
-- separating explanation from command when `--explain` is enabled
+History:
+- `~/.ai-command-history.json`
 
-If parsing fails:
-- raw model output is shown/saved
-- no execution proceeds for empty extracted command
+History entry fields:
+- `timestamp`
+- `prompt`
+- `command`
+- `executed`
+- `provider`
+- optional `notes`
 
-### 9) Runtime and error handling
-- Uses OS and shell metadata in prompts (platform, kernel release, arch, shell name)
-- Executes commands with `child_process.exec`
-- Handles `SIGINT`, unhandled rejections, and uncaught exceptions with cleanup
+History is trimmed to the latest 1000 entries before append.
 
-## Files That Define Core Behavior
+## Safety and Execution
+- proposed commands pass through a danger-pattern filter before execution
+- obviously risky commands are not auto-executed and are logged
+- execution still requires user confirmation (unless cancelled/dry run path)
+- actual execution uses `child_process.exec`
+
+## Output Parsing
+Generated provider output is parsed by:
+- extracting fenced code blocks when present
+- otherwise finding first command-like line
+- stripping shell prompt noise and wrappers
+- separating explanation from command when `--explain` is on
+
+## Autocomplete
+`ai install-autocomplete`:
+- copies `cmd-ai-completion.sh` to `~/.cmd-ai-completion.sh`
+- appends `source ~/.cmd-ai-completion.sh` to shell rc file when possible
+
+## Core Files
 - CLI logic: `bin/ai.js`
-- local model download progress UI: `utils/logs.js`
 - shell completion script: `cmd-ai-completion.sh`
+- package metadata + bin mapping: `package.json`
 - docs: `README.md`
-- package/binary mapping: `package.json`
 
-## Known Limitations / Gotchas
-- `bin/ai.js` imports `@huggingface/transformers` at top-level, so even `--help`/`--version` require dependencies installed.
-- `install-autocomplete` looks for `cmd-ai-completion.sh` in the current working directory (`process.cwd()`), so running from the wrong directory can fail.
-- completion script includes `autocomplete` as a suggestion, but no `ai autocomplete` command exists in `bin/ai.js`.
-- Safety filtering is string-pattern based; it reduces risk but is not a full shell parser/sandbox.
+## Known Limitations
+- model lists are intentionally hardcoded; updating requires code changes in `bin/ai.js`
+- `install-autocomplete` expects `cmd-ai-completion.sh` in current working directory
+- safety filter is pattern-based, not a full shell parser/sandbox
