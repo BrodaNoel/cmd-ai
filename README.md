@@ -35,7 +35,12 @@ The default provider is **ollama**.
 
 Your configuration is stored securely in:
 ```bash
-~/.ai-config.json
+$XDG_CONFIG_HOME/cmd-ai/config.json
+```
+
+If `XDG_CONFIG_HOME` is not set, `cmd-ai` uses:
+```bash
+~/.config/cmd-ai/config.json
 ```
 
 ## Usage
@@ -47,6 +52,10 @@ ai Tell me how much free space is left on the disk
 ```
 
 This will first display the suggested command based on your input. If you confirm by pressing "Enter," the command will then be executed.
+
+On non-Windows systems, when the Node.js runtime supports `process.execve`, `ai` hands off execution to your shell with `execve`, so `ai` is replaced in the process tree. If `execve` is unavailable (or fails), `ai` falls back to `child_process.exec`.
+
+Before generation, `ai` also builds a local command inventory from your `PATH`, detects common package managers, and samples versions of known tools. That context is included in the model prompt so it can prefer installed commands and suggest install steps when required commands appear missing. To keep token usage bounded, command names are capped.
 
 Here some pre-defined commands:
 
@@ -77,8 +86,13 @@ ai install-autocomplete
 
 This will:
 
-- Generate the autocomplete script at `~/.cmd-ai-completion.sh`
-- Add source `~/.cmd-ai-completion.sh` to your `.bashrc` or `.zshrc`
+- Generate the autocomplete script at `$XDG_DATA_HOME/cmd-ai/cmd-ai-completion.sh`
+- Add source `$XDG_DATA_HOME/cmd-ai/cmd-ai-completion.sh` to your `.bashrc` or `.zshrc`
+
+If `XDG_DATA_HOME` is not set, `cmd-ai` uses:
+```bash
+~/.local/share/cmd-ai/cmd-ai-completion.sh
+```
 
 ## Developers
 
@@ -221,8 +235,17 @@ npm view cmd-ai version
 All AI-generated commands are saved (with timestamp and status) in:
 
 ```bash
-~/.ai-command-history.json
+$XDG_STATE_HOME/cmd-ai/history.json
 ```
+
+If `XDG_STATE_HOME` is not set, `cmd-ai` uses:
+```bash
+~/.local/state/cmd-ai/history.json
+```
+
+Backward compatibility:
+- Existing `~/.ai-config.json` and `~/.ai-command-history.json` files are still read if present.
+- New writes use XDG paths, migrating data gradually on next write.
 
 View them using:
 

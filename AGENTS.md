@@ -84,10 +84,14 @@ Flags:
 
 ## Config and History Files
 Config:
-- `~/.ai-config.json`
+- `$XDG_CONFIG_HOME/cmd-ai/config.json`
+- fallback when `XDG_CONFIG_HOME` is unset: `~/.config/cmd-ai/config.json`
+- legacy read compatibility: `~/.ai-config.json`
 
 History:
-- `~/.ai-command-history.json`
+- `$XDG_STATE_HOME/cmd-ai/history.json`
+- fallback when `XDG_STATE_HOME` is unset: `~/.local/state/cmd-ai/history.json`
+- legacy read compatibility: `~/.ai-command-history.json`
 
 History entry fields:
 - `timestamp`
@@ -103,7 +107,7 @@ History is trimmed to the latest 1000 entries before append.
 - proposed commands pass through a danger-pattern filter before execution
 - obviously risky commands are not auto-executed and are logged
 - execution still requires user confirmation (unless cancelled/dry run path)
-- actual execution uses `child_process.exec`
+- execution prefers `process.execve` handoff when available (non-Windows runtimes that support it), with fallback to `child_process.exec`
 
 ## Output Parsing
 Generated provider output is parsed by:
@@ -114,8 +118,9 @@ Generated provider output is parsed by:
 
 ## Autocomplete
 `ai install-autocomplete`:
-- copies `cmd-ai-completion.sh` to `~/.cmd-ai-completion.sh`
-- appends `source ~/.cmd-ai-completion.sh` to shell rc file when possible
+- copies `cmd-ai-completion.sh` to `$XDG_DATA_HOME/cmd-ai/cmd-ai-completion.sh`
+- fallback when `XDG_DATA_HOME` is unset: `~/.local/share/cmd-ai/cmd-ai-completion.sh`
+- updates shell rc source line to that XDG path when possible
 
 ## Core Files
 - CLI logic: `bin/ai.js`
@@ -166,5 +171,5 @@ npm publish
 
 ## Known Limitations
 - model lists are intentionally hardcoded; updating requires code changes in `bin/ai.js`
-- `install-autocomplete` copies the bundled `cmd-ai-completion.sh` from the installed package path and sources it from `~/.cmd-ai-completion.sh`
+- `install-autocomplete` copies the bundled `cmd-ai-completion.sh` from the installed package path and sources it from the XDG data path
 - safety filter is pattern-based, not a full shell parser/sandbox

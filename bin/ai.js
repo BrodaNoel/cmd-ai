@@ -12,8 +12,25 @@ const execFileAsync = promisify(execFile);
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const CONFIG_PATH = path.join(os.homedir(), '.ai-config.json');
-const HISTORY_PATH = path.join(os.homedir(), '.ai-command-history.json');
+const HOME_DIR = os.homedir();
+const XDG_CONFIG_HOME =
+  process.env.XDG_CONFIG_HOME || path.join(HOME_DIR, '.config');
+const XDG_STATE_HOME =
+  process.env.XDG_STATE_HOME || path.join(HOME_DIR, '.local', 'state');
+const XDG_DATA_HOME =
+  process.env.XDG_DATA_HOME || path.join(HOME_DIR, '.local', 'share');
+
+const APP_CONFIG_DIR = path.join(XDG_CONFIG_HOME, 'cmd-ai');
+const APP_STATE_DIR = path.join(XDG_STATE_HOME, 'cmd-ai');
+const APP_DATA_DIR = path.join(XDG_DATA_HOME, 'cmd-ai');
+
+const CONFIG_PATH = path.join(APP_CONFIG_DIR, 'config.json');
+const HISTORY_PATH = path.join(APP_STATE_DIR, 'history.json');
+const AUTOCOMPLETE_PATH = path.join(APP_DATA_DIR, 'cmd-ai-completion.sh');
+
+const LEGACY_CONFIG_PATH = path.join(HOME_DIR, '.ai-config.json');
+const LEGACY_HISTORY_PATH = path.join(HOME_DIR, '.ai-command-history.json');
+const LEGACY_AUTOCOMPLETE_PATH = path.join(HOME_DIR, '.cmd-ai-completion.sh');
 
 const PROVIDERS = ['ollama', 'openai', 'gemini', 'claude'];
 
@@ -50,6 +67,337 @@ const DEFAULT_CONFIG = {
   claudeReasoningEffort: 'medium',
 };
 
+const COMMAND_PROMPT_LIMIT = 220;
+const VERSION_PROMPT_LIMIT = 24;
+const VERSION_PROBE_TIMEOUT_MS = 1200;
+const PROSE_LINE_STARTERS = new Set([
+  'to',
+  'for',
+  'then',
+  'next',
+  'first',
+  'second',
+  'third',
+  'finally',
+  'option',
+  'alternatively',
+  'replace',
+  'note',
+  'you',
+  'please',
+  'run',
+  'execute',
+  'check',
+  'try',
+  'attempt',
+]);
+const SHELL_BUILTINS = new Set([
+  '.',
+  ':',
+  '[',
+  'alias',
+  'cd',
+  'echo',
+  'eval',
+  'exec',
+  'export',
+  'false',
+  'printf',
+  'pwd',
+  'set',
+  'source',
+  'test',
+  'true',
+  'type',
+  'unalias',
+  'unset',
+]);
+const VERSION_PROBE_CANDIDATES = [
+  'bash',
+  'zsh',
+  'sh',
+  'fish',
+  'nu',
+  'node',
+  'npm',
+  'npx',
+  'pnpm',
+  'yarn',
+  'bun',
+  'deno',
+  'corepack',
+  'nx',
+  'turbo',
+  'vite',
+  'webpack',
+  'rollup',
+  'parcel',
+  'eslint',
+  'prettier',
+  'jest',
+  'vitest',
+  'cypress',
+  'playwright',
+  'react-native',
+  'expo',
+  'eas',
+  'ng',
+  'ionic',
+  'svelte-kit',
+  'next',
+  'nuxt',
+  'python',
+  'python3',
+  'pip',
+  'pip3',
+  'pipx',
+  'poetry',
+  'pipenv',
+  'conda',
+  'uv',
+  'pytest',
+  'ruff',
+  'mypy',
+  'jupyter',
+  'git',
+  'gh',
+  'git-lfs',
+  'curl',
+  'wget',
+  'jq',
+  'yq',
+  'grep',
+  'sed',
+  'awk',
+  'rg',
+  'fd',
+  'fzf',
+  'xargs',
+  'parallel',
+  'docker',
+  'docker-compose',
+  'podman',
+  'nerdctl',
+  'buildah',
+  'skopeo',
+  'kubectl',
+  'helm',
+  'kustomize',
+  'minikube',
+  'kind',
+  'k3d',
+  'k9s',
+  'stern',
+  'flux',
+  'argocd',
+  'terraform',
+  'terragrunt',
+  'packer',
+  'vagrant',
+  'ansible',
+  'ansible-playbook',
+  'vault',
+  'consul',
+  'nomad',
+  'aws',
+  'aws-vault',
+  'sam',
+  'az',
+  'gcloud',
+  'gsutil',
+  'bq',
+  'doctl',
+  'flyctl',
+  'heroku',
+  'vercel',
+  'netlify',
+  'cloudflared',
+  'rabbitmqctl',
+  'kcat',
+  'helmfile',
+  'tar',
+  'zip',
+  'unzip',
+  '7z',
+  'gzip',
+  'gunzip',
+  'bzip2',
+  'xz',
+  'openssl',
+  'gpg',
+  'make',
+  'cmake',
+  'ninja',
+  'meson',
+  'bazel',
+  'bazelisk',
+  'buck',
+  'go',
+  'gofmt',
+  'golangci-lint',
+  'dlv',
+  'rustc',
+  'cargo',
+  'rustup',
+  'clippy-driver',
+  'java',
+  'javac',
+  'mvn',
+  'gradle',
+  'kotlin',
+  'dotnet',
+  'msbuild',
+  'nuget',
+  'php',
+  'composer',
+  'phpunit',
+  'artisan',
+  'ruby',
+  'bundle',
+  'gem',
+  'rake',
+  'rails',
+  'rspec',
+  'perl',
+  'gcc',
+  'g++',
+  'clang',
+  'clang++',
+  'gdb',
+  'lldb',
+  'swift',
+  'xcodebuild',
+  'xcrun',
+  'pod',
+  'carthage',
+  'swiftlint',
+  'fastlane',
+  'flutter',
+  'dart',
+  'adb',
+  'fastboot',
+  'emulator',
+  'sdkmanager',
+  'avdmanager',
+  'ffmpeg',
+  'ffprobe',
+  'imagemagick',
+  'convert',
+  'psql',
+  'mysql',
+  'mariadb',
+  'mongo',
+  'mongosh',
+  'redis-cli',
+  'sqlite3',
+  'influx',
+  'clickhouse-client',
+  'duckdb',
+  'liquibase',
+  'flyway',
+];
+const VERSION_ARGS_BY_COMMAND = {
+  adb: ['version'],
+  argocd: ['version', '--client'],
+  avdmanager: ['--version'],
+  az: ['version'],
+  bazel: ['version'],
+  bq: ['version'],
+  dart: ['--version'],
+  dotnet: ['--version'],
+  ffmpeg: ['-version'],
+  ffprobe: ['-version'],
+  flux: ['version'],
+  flyctl: ['version'],
+  gcloud: ['version'],
+  gsutil: ['version', '-l'],
+  helmfile: ['version'],
+  java: ['--version'],
+  javac: ['--version'],
+  k3d: ['version'],
+  k9s: ['version'],
+  kind: ['version'],
+  kubectl: ['version', '--client=true'],
+  kustomize: ['version'],
+  minikube: ['version'],
+  mongosh: ['--version'],
+  mvn: ['-version'],
+  packer: ['version'],
+  podman: ['version'],
+  sdkmanager: ['--version'],
+  stern: ['--version'],
+  swift: ['--version'],
+  terragrunt: ['--version'],
+  terraform: ['version'],
+  psql: ['--version'],
+  python: ['--version'],
+  python3: ['--version'],
+  ruby: ['--version'],
+  sh: ['--version'],
+  xcodebuild: ['-version'],
+};
+const PACKAGE_MANAGER_CANDIDATES = {
+  linux: [
+    {
+      command: 'apt-get',
+      installTemplate: 'sudo apt-get update && sudo apt-get install -y <package>',
+    },
+    {
+      command: 'apt',
+      installTemplate: 'sudo apt update && sudo apt install -y <package>',
+    },
+    {
+      command: 'dnf',
+      installTemplate: 'sudo dnf install -y <package>',
+    },
+    {
+      command: 'yum',
+      installTemplate: 'sudo yum install -y <package>',
+    },
+    {
+      command: 'pacman',
+      installTemplate: 'sudo pacman -S --noconfirm <package>',
+    },
+    {
+      command: 'zypper',
+      installTemplate: 'sudo zypper install -y <package>',
+    },
+    {
+      command: 'apk',
+      installTemplate: 'sudo apk add <package>',
+    },
+    {
+      command: 'nix-env',
+      installTemplate: 'nix-env -iA nixpkgs.<package>',
+    },
+  ],
+  darwin: [
+    {
+      command: 'brew',
+      installTemplate: 'brew install <package>',
+    },
+    {
+      command: 'port',
+      installTemplate: 'sudo port install <package>',
+    },
+  ],
+  win32: [
+    {
+      command: 'winget',
+      installTemplate: 'winget install --id <package-id>',
+    },
+    {
+      command: 'choco',
+      installTemplate: 'choco install -y <package>',
+    },
+    {
+      command: 'scoop',
+      installTemplate: 'scoop install <package>',
+    },
+  ],
+  fallback: [],
+};
+
 const rl = readline.createInterface({
   input: process.stdin,
   output: process.stdout,
@@ -57,6 +405,16 @@ const rl = readline.createInterface({
 
 function ask(question) {
   return new Promise(resolve => rl.question(question, resolve));
+}
+
+function ensureParentDirectory(filePath) {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+}
+
+function resolvePreferredPath(primaryPath, legacyPath) {
+  if (fs.existsSync(primaryPath)) return primaryPath;
+  if (legacyPath && fs.existsSync(legacyPath)) return legacyPath;
+  return primaryPath;
 }
 
 function startGenerationLoading(provider) {
@@ -115,9 +473,11 @@ function startGenerationLoading(provider) {
 
 function saveHistory(entry) {
   let history = [];
-  if (fs.existsSync(HISTORY_PATH)) {
+  const historyReadPath = resolvePreferredPath(HISTORY_PATH, LEGACY_HISTORY_PATH);
+
+  if (fs.existsSync(historyReadPath)) {
     try {
-      history = JSON.parse(fs.readFileSync(HISTORY_PATH, 'utf-8')).slice(-1000);
+      history = JSON.parse(fs.readFileSync(historyReadPath, 'utf-8')).slice(-1000);
     } catch (e) {
       console.error('Error reading history file, starting fresh:', e.message);
       history = [];
@@ -127,10 +487,51 @@ function saveHistory(entry) {
   history.push({ ...entry, timestamp: new Date().toISOString() });
 
   try {
+    ensureParentDirectory(HISTORY_PATH);
     fs.writeFileSync(HISTORY_PATH, JSON.stringify(history, null, 2));
   } catch (e) {
     console.error('Error writing history file:', e.message);
   }
+}
+
+function removeLastHistoryEntryByNoteToken(token) {
+  const historyReadPath = resolvePreferredPath(HISTORY_PATH, LEGACY_HISTORY_PATH);
+  if (!token || !fs.existsSync(historyReadPath)) return;
+
+  try {
+    const history = JSON.parse(fs.readFileSync(historyReadPath, 'utf-8'));
+    if (!Array.isArray(history) || history.length === 0) return;
+
+    const lastEntry = history[history.length - 1];
+    if (
+      lastEntry &&
+      typeof lastEntry.notes === 'string' &&
+      lastEntry.notes.includes(token)
+    ) {
+      history.pop();
+      ensureParentDirectory(HISTORY_PATH);
+      fs.writeFileSync(HISTORY_PATH, JSON.stringify(history, null, 2));
+    }
+  } catch (e) {
+    console.error('Error rolling back history entry:', e.message);
+  }
+}
+
+function supportsExecveHandoff() {
+  return process.platform !== 'win32' && typeof process.execve === 'function';
+}
+
+function resolveExecutionShell() {
+  const preferredShell = (process.env.SHELL || '').trim();
+  if (
+    preferredShell &&
+    path.isAbsolute(preferredShell) &&
+    fs.existsSync(preferredShell)
+  ) {
+    return preferredShell;
+  }
+
+  return '/bin/sh';
 }
 
 function isDangerous(command) {
@@ -235,7 +636,7 @@ Autocomplete:
 
 function installAutocompleteScript() {
   const sourcePath = path.join(__dirname, '..', 'cmd-ai-completion.sh');
-  const targetPath = path.join(os.homedir(), '.cmd-ai-completion.sh');
+  const targetPath = AUTOCOMPLETE_PATH;
 
   if (!fs.existsSync(sourcePath)) {
     console.error(`Autocomplete script not found at: ${sourcePath}\n`);
@@ -246,6 +647,7 @@ function installAutocompleteScript() {
   }
 
   try {
+    ensureParentDirectory(targetPath);
     fs.copyFileSync(sourcePath, targetPath);
     fs.chmodSync(targetPath, 0o644);
     console.log(`✅ Autocomplete script copied to: ${targetPath}`);
@@ -257,14 +659,15 @@ function installAutocompleteScript() {
   const shell = process.env.SHELL || '';
   let rcFile = null;
   if (shell.includes('zsh')) {
-    rcFile = path.join(os.homedir(), '.zshrc');
+    rcFile = path.join(HOME_DIR, '.zshrc');
   } else if (shell.includes('bash')) {
-    rcFile = path.join(os.homedir(), '.bashrc');
+    rcFile = path.join(HOME_DIR, '.bashrc');
   } else if (shell.includes('ksh')) {
-    rcFile = path.join(os.homedir(), '.kshrc');
+    rcFile = path.join(HOME_DIR, '.kshrc');
   }
 
   const sourceCmd = `source ${targetPath}`;
+  const legacySourceCmd = `source ${LEGACY_AUTOCOMPLETE_PATH}`;
 
   if (!rcFile) {
     console.log('\n🚨 Could not detect shell config file automatically.');
@@ -276,9 +679,15 @@ function installAutocompleteScript() {
   }
 
   try {
-    const rcContent = fs.existsSync(rcFile)
+    let rcContent = fs.existsSync(rcFile)
       ? fs.readFileSync(rcFile, 'utf-8')
       : '';
+
+    if (rcContent.includes(legacySourceCmd) && !rcContent.includes(sourceCmd)) {
+      rcContent = rcContent.replaceAll(legacySourceCmd, sourceCmd);
+      fs.writeFileSync(rcFile, rcContent);
+      console.log(`✅ Updated ${rcFile} to migrate autocomplete source path.`);
+    }
 
     if (!rcContent.includes(sourceCmd)) {
       const lines = rcContent.split('\n');
@@ -310,7 +719,299 @@ function installAutocompleteScript() {
   }
 }
 
+function unwrapOuterCommandWrapper(command) {
+  let cleaned = command.trim();
+  const wrapperPairs = {
+    "'": "'",
+    '"': '"',
+    '`': '`',
+  };
+
+  // Some models wrap commands in one or more quote/backtick pairs.
+  for (let i = 0; i < 3; i++) {
+    if (cleaned.length < 2) break;
+
+    const firstChar = cleaned[0];
+    const lastChar = cleaned[cleaned.length - 1];
+    if (wrapperPairs[firstChar] !== lastChar) {
+      break;
+    }
+
+    const inner = cleaned.slice(1, -1).trim();
+    if (!inner) break;
+    cleaned = inner;
+  }
+
+  return cleaned;
+}
+
+function stripCommandLineDecorators(line) {
+  let cleaned = line.trim();
+  cleaned = cleaned.replace(/^>\s*/, '');
+  cleaned = cleaned.replace(/^\s*(?:[-*+]|\d+[.)])\s+/, '');
+  cleaned = cleaned.replace(/^\$\s+/, '').replace(/^#\s+/, '');
+  cleaned = unwrapOuterCommandWrapper(cleaned);
+  return cleaned.trim();
+}
+
+function getLeadingCommandToken(line) {
+  const tokens = line.split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) return null;
+
+  let i = 0;
+
+  if (tokens[i] === 'env') {
+    i += 1;
+  }
+
+  while (i < tokens.length && /^[A-Za-z_][A-Za-z0-9_]*=.*/.test(tokens[i])) {
+    i += 1;
+  }
+
+  if (tokens[i] === 'sudo') {
+    i += 1;
+    while (i < tokens.length && /^-/.test(tokens[i])) {
+      const option = tokens[i];
+      i += 1;
+      if ((option === '-u' || option === '--user') && i < tokens.length) {
+        i += 1;
+      }
+    }
+  }
+
+  if (i >= tokens.length) return null;
+
+  return tokens[i].replace(/[;|&]+$/, '');
+}
+
+function isLikelyExecutableLine(line) {
+  const trimmed = line.trim();
+  if (!trimmed) return false;
+  if (trimmed.startsWith('```')) return false;
+  if (/^\(.*\)$/.test(trimmed)) return false;
+  if (/^[#]{2,}\s+/.test(trimmed)) return false;
+  if (/^\d+[.)]\s+\S.*:\s*$/.test(trimmed)) return false;
+  if (
+    trimmed.endsWith(':') &&
+    !/[;&|]/.test(trimmed) &&
+    !/^[./~]/.test(trimmed)
+  ) {
+    return false;
+  }
+
+  const normalized = stripCommandLineDecorators(trimmed);
+  if (!normalized) return false;
+
+  const loweredLine = normalized.toLowerCase();
+  if (
+    loweredLine.startsWith('or ') ||
+    loweredLine.startsWith('or, ') ||
+    loweredLine.startsWith('alternatively')
+  ) {
+    return false;
+  }
+
+  const token = getLeadingCommandToken(normalized);
+  if (!token) return false;
+
+  const loweredToken = token.toLowerCase();
+  if (PROSE_LINE_STARTERS.has(loweredToken)) return false;
+
+  if (
+    token.startsWith('/') ||
+    token.startsWith('./') ||
+    token.startsWith('../') ||
+    token.startsWith('~/')
+  ) {
+    return true;
+  }
+
+  if (SHELL_BUILTINS.has(loweredToken)) return true;
+
+  return /^[A-Za-z0-9_./:+@~-]+$/.test(token);
+}
+
+function extractInlineCodeCommands(line) {
+  const commands = [];
+  const inlineCodeRegex = /`([^`]+)`/g;
+  let match;
+
+  while ((match = inlineCodeRegex.exec(line)) !== null) {
+    const candidate = stripCommandLineDecorators(match[1]);
+    if (candidate && isLikelyExecutableLine(candidate)) {
+      commands.push(candidate);
+    }
+  }
+
+  return commands;
+}
+
+function shouldExtractExecutableLines(commandText) {
+  return (
+    /(^|\n)\s*\d+[.)]\s+/m.test(commandText) ||
+    /(^|\n)\s*[-*+]\s+/m.test(commandText) ||
+    /(^|\n)\s*\(.*\)\s*$/m.test(commandText) ||
+    /(^|\n)\s*[^`\n]+:\s*$/m.test(commandText) ||
+    /`[^`]+`/.test(commandText)
+  );
+}
+
+function normalizeExecutableCommandBlock(commandText) {
+  const text = commandText.trim();
+  if (!text || !shouldExtractExecutableLines(text)) {
+    return text;
+  }
+
+  const lines = text.split('\n');
+  const extracted = [];
+  const seen = new Set();
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    const loweredLine = line.toLowerCase();
+
+    if (
+      extracted.length > 0 &&
+      /^(\d+[.)]\s*)?(option|alternative)\b/.test(loweredLine)
+    ) {
+      break;
+    }
+
+    const directCandidate = stripCommandLineDecorators(line);
+    if (directCandidate && isLikelyExecutableLine(directCandidate)) {
+      const key = directCandidate.replace(/\s+/g, ' ').trim();
+      if (!seen.has(key)) {
+        seen.add(key);
+        extracted.push(directCandidate);
+      }
+      continue;
+    }
+
+    const inlineCommands = extractInlineCodeCommands(line);
+    for (const inlineCommand of inlineCommands) {
+      const key = inlineCommand.replace(/\s+/g, ' ').trim();
+      if (!seen.has(key)) {
+        seen.add(key);
+        extracted.push(inlineCommand);
+      }
+    }
+  }
+
+  if (extracted.length > 0) {
+    return extracted.join('\n');
+  }
+
+  return text;
+}
+
+function collectJsonCandidates(text) {
+  const candidates = [];
+  const trimmed = text.trim();
+
+  if (trimmed) {
+    candidates.push(trimmed);
+  }
+
+  const fencedJsonRegex = /```(?:json)?\s*([\s\S]*?)```/gi;
+  let match;
+  while ((match = fencedJsonRegex.exec(text)) !== null) {
+    const candidate = match[1].trim();
+    if (candidate) {
+      candidates.push(candidate);
+    }
+  }
+
+  const firstBrace = trimmed.indexOf('{');
+  const lastBrace = trimmed.lastIndexOf('}');
+  if (firstBrace !== -1 && lastBrace > firstBrace) {
+    const braceSlice = trimmed.slice(firstBrace, lastBrace + 1).trim();
+    if (braceSlice) {
+      candidates.push(braceSlice);
+    }
+  }
+
+  return [...new Set(candidates)];
+}
+
+function normalizeCommandsFromJsonArray(commandsValue) {
+  if (!Array.isArray(commandsValue)) return [];
+
+  const commands = [];
+  const seen = new Set();
+
+  for (const item of commandsValue) {
+    if (typeof item !== 'string') continue;
+
+    const normalizedItem = normalizeExecutableCommandBlock(
+      unwrapOuterCommandWrapper(item)
+    );
+    if (!normalizedItem) continue;
+
+    const itemLines = normalizedItem
+      .split('\n')
+      .map(line => stripCommandLineDecorators(line))
+      .filter(Boolean);
+
+    for (const line of itemLines) {
+      if (!isLikelyExecutableLine(line)) continue;
+      const key = line.replace(/\s+/g, ' ').trim();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      commands.push(line);
+    }
+  }
+
+  return commands;
+}
+
+function parseStructuredCommandResponse(output, explainMode) {
+  const candidates = collectJsonCandidates(output);
+
+  for (const candidate of candidates) {
+    let parsed;
+    try {
+      parsed = JSON.parse(candidate);
+    } catch {
+      continue;
+    }
+
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      continue;
+    }
+
+    let commands = normalizeCommandsFromJsonArray(parsed.commands);
+
+    if (commands.length === 0 && typeof parsed.command === 'string') {
+      commands = normalizeCommandsFromJsonArray([parsed.command]);
+    }
+
+    if (commands.length === 0) {
+      continue;
+    }
+
+    const explanation =
+      explainMode &&
+      typeof parsed.explanation === 'string' &&
+      parsed.explanation.trim()
+        ? parsed.explanation.trim()
+        : null;
+
+    return {
+      explanation,
+      command: commands.join('\n'),
+    };
+  }
+
+  return null;
+}
+
 function parseModelOutput(output, explainMode) {
+  const structuredResponse = parseStructuredCommandResponse(output, explainMode);
+  if (structuredResponse) {
+    return structuredResponse;
+  }
+
   let explanation = null;
   let command = output.trim();
 
@@ -324,11 +1025,12 @@ function parseModelOutput(output, explainMode) {
       explanation = explanationPart;
     }
 
-    command = command.replace(/^['"`\s]+/, '').replace(/['"`\s]+$/, '');
+    command = unwrapOuterCommandWrapper(command);
+    command = normalizeExecutableCommandBlock(command);
 
     if (explanation) {
       const conversationalStarts =
-        /^(?:(hi|hello|hey|greetings|i am|i'm|as a large language model|i cannot|i'm sorry|i understand|okay|sure|alright|of course|you can|you could|to do that|here is|here's)|[^\s]+:)/i;
+        /^(?:(hi|hello|hey|greetings|i am|i'm|as a large language model|i cannot|i'm sorry|i understand|okay|sure|alright|of course|you can|you could|to do that|here is|here's)\b|(?:assistant|ai|system|user|model)\s*:)/i;
 
       const explanationLines = explanation
         .split('\n')
@@ -343,11 +1045,12 @@ function parseModelOutput(output, explainMode) {
       }
 
       explanation = cleanedExplanationLines.join('\n').trim();
+      explanation = explanation.replace(/^explanation:\s*/i, '').trim();
       if (explanation === '') explanation = null;
     }
   } else {
     const commandStartRegex =
-      /^[a-zA-Z0-9_-]+|^\.|\/|~|^[>|!$%&*+,-./:;=?@^_~]/;
+      /^(?:[a-zA-Z0-9_-]+|\.|\/|~|[>|!$%&*+,\-./:;=?@^_~])/;
     const conversationalLineRegex =
       /^(?:(hi|hello|hey|greetings|i am|i'm|as a large language model|i cannot|i'm sorry|i understand|okay|sure|alright|of course|you can|you could|to do that|here is|here's)|[^\s]+:)/i;
 
@@ -373,8 +1076,9 @@ function parseModelOutput(output, explainMode) {
         if (explanation === '') explanation = null;
       }
       command = lines.slice(firstCommandLineIndex).join('\n').trim();
-      command = command.replace(/^['"`\s]+/, '').replace(/['"`\s]+$/, '');
       command = command.replace(/^\$\s+/, '').replace(/^#\s+/, '');
+      command = unwrapOuterCommandWrapper(command);
+      command = normalizeExecutableCommandBlock(command);
     } else {
       console.warn(
         'Warning: Could not identify a clear command start line or code block in the model output.'
@@ -431,17 +1135,31 @@ function normalizeConfig(rawConfig) {
   return config;
 }
 
-function buildSystemInstruction(osInfo, shellInfo, explainMode) {
+function buildSystemInstruction(
+  osInfo,
+  shellInfo,
+  explainMode,
+  commandAvailabilityContext
+) {
   const modeInstruction = explainMode
-    ? 'First, provide a brief explanation of the command. Then provide the command, ideally in a fenced code block (for example: ```bash\\n...\\n```).'
-    : 'Respond only with the command, ideally in a fenced code block (for example: ```bash\\n...\\n```). No commentary or headings.';
+    ? 'Return a strict JSON object with keys: "commands" (array of executable shell commands) and "explanation" (brief string).'
+    : 'Return a strict JSON object with key: "commands" (array of executable shell commands). You may include "explanation" as null or omit it.';
+  const outputShapeInstruction =
+    'JSON only (no markdown fences, headings, numbered lists, bullet points, notes, placeholders, or alternative approaches). If multiple commands are required, list them in "commands" in execution order. Choose one best approach.';
+  const commandAvailabilityInstruction = commandAvailabilityContext
+    ? `Use the runtime tool context below to choose commands that are actually installed. If a needed command appears missing, add install command(s) using an available package manager, then the task command.
+
+${commandAvailabilityContext}`
+    : '';
 
   return `
 You are a helpful shell (${shellInfo}) assistant, running on ${osInfo}.
 The user will ask for a task they want to accomplish or need help with.
 Your goal is to provide safe and correct shell command(s) to accomplish that task.
 ${modeInstruction}
-Output only the explanation and command, or just the command.
+${outputShapeInstruction}
+${commandAvailabilityInstruction}
+Output only valid JSON.
 `.trim();
 }
 
@@ -463,6 +1181,202 @@ async function isCommandInstalled(command) {
     }
     return true;
   }
+}
+
+function listInstalledCommandsFromPath() {
+  const rawPath = process.env.PATH || '';
+  if (!rawPath) return [];
+
+  const pathDirs = rawPath
+    .split(path.delimiter)
+    .map(dir => dir.trim().replace(/^"+|"+$/g, ''))
+    .filter(Boolean);
+
+  const commands = new Set();
+  const visitedDirs = new Set();
+  const windowsPathExt = (process.env.PATHEXT || '.COM;.EXE;.BAT;.CMD')
+    .split(';')
+    .map(ext => ext.toLowerCase())
+    .filter(Boolean);
+
+  for (const dir of pathDirs) {
+    if (visitedDirs.has(dir)) continue;
+    visitedDirs.add(dir);
+
+    let entries = [];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+
+    for (const entry of entries) {
+      if (!entry.isFile() && !entry.isSymbolicLink()) continue;
+
+      const fullPath = path.join(dir, entry.name);
+
+      let stat;
+      try {
+        stat = fs.statSync(fullPath);
+      } catch {
+        continue;
+      }
+
+      if (!stat.isFile()) continue;
+
+      if (process.platform === 'win32') {
+        const extension = path.extname(entry.name).toLowerCase();
+        if (!windowsPathExt.includes(extension)) continue;
+        const commandName = path.basename(entry.name, extension);
+        if (commandName) {
+          commands.add(commandName);
+        }
+        continue;
+      }
+
+      if ((stat.mode & 0o111) !== 0) {
+        commands.add(entry.name);
+      }
+    }
+  }
+
+  return Array.from(commands).sort((a, b) => a.localeCompare(b));
+}
+
+function toVersionLine(text) {
+  if (!text || typeof text !== 'string') return null;
+  const line = stripAnsi(text)
+    .split(/\r?\n/)
+    .map(value => value.trim())
+    .find(Boolean);
+  if (!line) return null;
+  if (!/\d/.test(line) && !/version/i.test(line)) return null;
+  if (
+    /(unknown|illegal|invalid|unrecognized)\s+option|usage:/i.test(line) &&
+    !/version/i.test(line)
+  ) {
+    return null;
+  }
+  return line;
+}
+
+async function getCommandVersion(command) {
+  const candidates = [];
+  const specificArgs = VERSION_ARGS_BY_COMMAND[command];
+  if (specificArgs) {
+    candidates.push(specificArgs);
+  }
+  candidates.push(['--version']);
+  candidates.push(['-V']);
+
+  const seen = new Set();
+  for (const args of candidates) {
+    const key = args.join('\u0000');
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    try {
+      const { stdout, stderr } = await execFileAsync(command, args, {
+        timeout: VERSION_PROBE_TIMEOUT_MS,
+        windowsHide: true,
+        maxBuffer: 128 * 1024,
+      });
+
+      const versionLine = toVersionLine(stdout) || toVersionLine(stderr);
+      if (versionLine) return versionLine;
+    } catch (error) {
+      if (error.code === 'ENOENT' || error.killed) {
+        return null;
+      }
+
+      const versionLine =
+        toVersionLine(error.stdout) ||
+        toVersionLine(error.stderr) ||
+        toVersionLine(error.message);
+      if (versionLine) return versionLine;
+    }
+  }
+
+  return null;
+}
+
+async function detectAvailablePackageManagers() {
+  const platformManagers =
+    PACKAGE_MANAGER_CANDIDATES[process.platform] || PACKAGE_MANAGER_CANDIDATES.fallback;
+
+  const checks = await Promise.all(
+    platformManagers.map(async manager => ({
+      manager,
+      installed: await isCommandInstalled(manager.command),
+    }))
+  );
+
+  return checks
+    .filter(result => result.installed)
+    .map(result => result.manager);
+}
+
+async function buildCommandAvailabilityContext() {
+  const installedCommands = listInstalledCommandsFromPath();
+  const installedSet = new Set(installedCommands);
+  const includedCommands = installedCommands.slice(0, COMMAND_PROMPT_LIMIT);
+
+  const versionCandidates = VERSION_PROBE_CANDIDATES.filter(command =>
+    installedSet.has(command)
+  ).slice(0, VERSION_PROMPT_LIMIT);
+
+  const versionChecks = await Promise.all(
+    versionCandidates.map(async command => ({
+      command,
+      version: await getCommandVersion(command),
+    }))
+  );
+  const detectedVersions = versionChecks.filter(item => item.version);
+
+  const availablePackageManagers = await detectAvailablePackageManagers();
+
+  const lines = [
+    'Runtime tool context (generated locally):',
+    `- PATH commands discovered: ${installedCommands.length}`,
+  ];
+
+  if (includedCommands.length === 0) {
+    lines.push('- Installed command names: none detected');
+  } else if (installedCommands.length > includedCommands.length) {
+    lines.push(
+      `- Installed command names (alphabetical, first ${includedCommands.length} due to token cap): ${includedCommands.join(', ')}`
+    );
+  } else {
+    lines.push(
+      `- Installed command names (alphabetical): ${includedCommands.join(', ')}`
+    );
+  }
+
+  if (detectedVersions.length > 0) {
+    lines.push(
+      `- Detected command versions (sample of ${detectedVersions.length}): ${detectedVersions
+        .map(item => `${item.command}=${item.version}`)
+        .join('; ')}`
+    );
+  } else {
+    lines.push('- Detected command versions: unavailable');
+  }
+
+  if (availablePackageManagers.length > 0) {
+    lines.push(
+      `- Available package managers: ${availablePackageManagers
+        .map(manager => `${manager.command} (${manager.installTemplate})`)
+        .join('; ')}`
+    );
+  } else {
+    lines.push('- Available package managers: none detected');
+  }
+
+  lines.push(
+    '- Command policy: Prefer installed commands from the list above. If a required command appears missing, include install command(s) using only available package managers before the task command.'
+  );
+
+  return lines.join('\n');
 }
 
 async function getOllamaModels() {
@@ -674,12 +1588,18 @@ async function generateCommandOpenAI(
   userPrompt,
   osInfo,
   shellInfo,
+  commandAvailabilityContext,
   apiKey,
   model,
   reasoningEffort,
   explainMode
 ) {
-  const systemInstruction = buildSystemInstruction(osInfo, shellInfo, explainMode);
+  const systemInstruction = buildSystemInstruction(
+    osInfo,
+    shellInfo,
+    explainMode,
+    commandAvailabilityContext
+  );
 
   const payload = {
     model,
@@ -738,12 +1658,18 @@ async function generateCommandGemini(
   userPrompt,
   osInfo,
   shellInfo,
+  commandAvailabilityContext,
   apiKey,
   model,
   reasoningEffort,
   explainMode
 ) {
-  const systemInstruction = buildSystemInstruction(osInfo, shellInfo, explainMode);
+  const systemInstruction = buildSystemInstruction(
+    osInfo,
+    shellInfo,
+    explainMode,
+    commandAvailabilityContext
+  );
   const thinkingConfig = getGeminiThinkingConfig(model, reasoningEffort);
 
   const generationConfig = {
@@ -799,12 +1725,18 @@ async function generateCommandClaude(
   userPrompt,
   osInfo,
   shellInfo,
+  commandAvailabilityContext,
   apiKey,
   model,
   reasoningEffort,
   explainMode
 ) {
-  const systemInstruction = buildSystemInstruction(osInfo, shellInfo, explainMode);
+  const systemInstruction = buildSystemInstruction(
+    osInfo,
+    shellInfo,
+    explainMode,
+    commandAvailabilityContext
+  );
 
   const payload = {
     model,
@@ -854,6 +1786,7 @@ async function generateCommandOllama(
   userPrompt,
   osInfo,
   shellInfo,
+  commandAvailabilityContext,
   model,
   explainMode
 ) {
@@ -864,7 +1797,12 @@ async function generateCommandOllama(
     );
   }
 
-  const systemInstruction = buildSystemInstruction(osInfo, shellInfo, explainMode);
+  const systemInstruction = buildSystemInstruction(
+    osInfo,
+    shellInfo,
+    explainMode,
+    commandAvailabilityContext
+  );
   const prompt = `${systemInstruction}\n\nTask: "${userPrompt}"`;
 
   try {
@@ -1047,6 +1985,7 @@ async function generateWithConfiguredProvider(
   userPrompt,
   osInfo,
   shellInfo,
+  commandAvailabilityContext,
   explainMode
 ) {
   if (config.provider === 'openai') {
@@ -1059,6 +1998,7 @@ async function generateWithConfiguredProvider(
       userPrompt,
       osInfo,
       shellInfo,
+      commandAvailabilityContext,
       config.openaiApiKey,
       config.openaiModel,
       config.openaiReasoningEffort,
@@ -1076,6 +2016,7 @@ async function generateWithConfiguredProvider(
       userPrompt,
       osInfo,
       shellInfo,
+      commandAvailabilityContext,
       config.geminiApiKey,
       config.geminiModel,
       config.geminiReasoningEffort,
@@ -1093,6 +2034,7 @@ async function generateWithConfiguredProvider(
       userPrompt,
       osInfo,
       shellInfo,
+      commandAvailabilityContext,
       config.claudeApiKey,
       config.claudeModel,
       config.claudeReasoningEffort,
@@ -1110,6 +2052,7 @@ async function generateWithConfiguredProvider(
     userPrompt,
     osInfo,
     shellInfo,
+    commandAvailabilityContext,
     config.ollamaModel,
     explainMode
   );
@@ -1131,11 +2074,13 @@ async function main() {
   });
 
   const args = process.argv.slice(2);
+  const configReadPath = resolvePreferredPath(CONFIG_PATH, LEGACY_CONFIG_PATH);
+  const historyReadPath = resolvePreferredPath(HISTORY_PATH, LEGACY_HISTORY_PATH);
 
   let config = { ...DEFAULT_CONFIG };
-  if (fs.existsSync(CONFIG_PATH)) {
+  if (fs.existsSync(configReadPath)) {
     try {
-      const existingConfig = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
+      const existingConfig = JSON.parse(fs.readFileSync(configReadPath, 'utf-8'));
       config = normalizeConfig(existingConfig);
     } catch (e) {
       console.error('Error reading config file:', e.message);
@@ -1170,6 +2115,7 @@ async function main() {
 
     try {
       await configureProviderSettings(config);
+      ensureParentDirectory(CONFIG_PATH);
       fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2));
 
       console.log('\n✅ Configuration saved successfully.');
@@ -1216,14 +2162,14 @@ async function main() {
   }
 
   if (args[0] === 'history') {
-    if (!fs.existsSync(HISTORY_PATH)) {
+    if (!fs.existsSync(historyReadPath)) {
       console.log('No command history found.');
       rl.close();
       return;
     }
 
     try {
-      const history = JSON.parse(fs.readFileSync(HISTORY_PATH, 'utf-8'));
+      const history = JSON.parse(fs.readFileSync(historyReadPath, 'utf-8'));
       if (history.length === 0) {
         console.log('Command history is empty.');
         rl.close();
@@ -1257,11 +2203,20 @@ async function main() {
   const shellInfo = process.env.SHELL
     ? path.basename(process.env.SHELL)
     : 'sh, zsh, ksh, etc';
+  let commandAvailabilityContext = '';
 
   if (!userPrompt) {
     printHelp();
     rl.close();
     process.exit(0);
+  }
+
+  try {
+    commandAvailabilityContext = await buildCommandAvailabilityContext();
+  } catch (error) {
+    console.warn(
+      `Warning: Could not gather local command inventory (${error.message}). Continuing without it.`
+    );
   }
 
   let rawModelOutput = '';
@@ -1274,6 +2229,7 @@ async function main() {
       userPrompt,
       osInfo,
       shellInfo,
+      commandAvailabilityContext,
       explainMode
     );
     loadingIndicator.stop();
@@ -1371,6 +2327,32 @@ async function main() {
   rl.close();
 
   console.log('\nExecuting command...');
+  if (supportsExecveHandoff()) {
+    const shellPath = resolveExecutionShell();
+    const shellArgv0 = path.basename(shellPath) || shellPath;
+    const handoffToken = `execve-handoff:${Date.now().toString(36)}:${Math.random()
+      .toString(36)
+      .slice(2, 8)}`;
+
+    saveHistory({
+      prompt: userPrompt,
+      command,
+      executed: true,
+      provider: executedProvider,
+      notes: `Delegated to ${shellPath} via execve; exit status not captured [${handoffToken}]`,
+    });
+
+    try {
+      process.execve(shellPath, [shellArgv0, '-c', command], process.env);
+      return;
+    } catch (error) {
+      removeLastHistoryEntryByNoteToken(handoffToken);
+      console.warn(
+        `\nexecve handoff failed (${error.message}). Falling back to child_process.exec.`
+      );
+    }
+  }
+
   exec(command, (error, stdout, stderr) => {
     if (error) {
       console.error(`\nExecution error:\n${error.message}`);
